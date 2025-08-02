@@ -11,14 +11,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/df-mc/dragonfly/server/player/debug"
+	"github.com/df-mc/dragonfly/server/player/hud"
+
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/cmd"
 	"github.com/df-mc/dragonfly/server/item/inventory"
 	"github.com/df-mc/dragonfly/server/item/recipe"
 	"github.com/df-mc/dragonfly/server/player/chat"
-	"github.com/df-mc/dragonfly/server/player/debug"
 	"github.com/df-mc/dragonfly/server/player/form"
-	"github.com/df-mc/dragonfly/server/player/hud"
 	"github.com/df-mc/dragonfly/server/player/skin"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
@@ -207,6 +208,8 @@ func (conf Config) New(conn Conn) *Session {
 			select {
 			case <-s.closeBackground:
 				return
+			case pk := <-s.outgoingPackets:
+				_ = conn.WritePacket(pk)
 			case first := <-s.incomingPackets:
 				var err error
 				s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
@@ -293,6 +296,8 @@ func (s *Session) Spawn(c Controllable, tx *world.Tx) {
 
 	go s.background()
 	go s.handlePackets()
+	go s.handleClosing()
+	go s.sendPackets()
 }
 
 // Close closes the session, which in turn closes the controllable and the connection that the session
@@ -342,7 +347,11 @@ func (s *Session) close(tx *world.Tx, c Controllable) {
 func (s *Session) CloseConnection() {
 	s.connOnce.Do(func() {
 		_ = s.conn.Close()
-		close(s.closeBackground)
+		select {
+		case <-s.closeBackground:
+		default:
+			close(s.closeBackground)
+		}
 	})
 }
 
@@ -364,39 +373,39 @@ func (s *Session) ClientData() login.ClientData {
 // handlePackets continuously handles incoming packets from the connection. It processes them accordingly.
 // Once the connection is closed, handlePackets will return.
 func (s *Session) handlePackets() {
-	defer func() {
-		// First close the Controllable. This might lead to a world change
-		// (player might be dead while disconnecting, in which case it will
-		// respawn first).
-		s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
-			_ = e.(Controllable).Close()
-		})
-		// Because the player might no longer be in the same world after
-		// closing, we create a new transaction
-		s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
-			s.Close(tx, e.(Controllable))
-		})
-	}()
 	for {
-		select {
-		case <-s.closeRead:
-			return
-		default:
-		}
-
 		pk, err := s.conn.ReadPacket()
 		if err != nil {
+			select {
+			case <-s.closeRead:
+			default:
+				close(s.closeRead)
+			}
 			return
 		}
-
-		select {
-		case <-s.closeRead:
-		case s.incomingPackets <- pk:
-		}
+		s.incomingPackets <- pk
 	}
 }
 
-// background performs background tasks of the Session. This includes chunk sending, automatic command updating, and packet writing.
+// handleClosing handles the closing of the session. It waits for the session to be closed either by the
+// connection being closed or by the server.
+func (s *Session) handleClosing() {
+	<-s.closeRead
+
+	// First close the Controllable. This might lead to a world change
+	// (player might be dead while disconnecting, in which case it will
+	// respawn first).
+	s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
+		_ = e.(Controllable).Close()
+	})
+	// Because the player might no longer be in the same world after
+	// closing, we create a new transaction
+	s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
+		s.Close(tx, e.(Controllable))
+	})
+}
+
+// background performs background tasks of the Session. This includes chunk sending and automatic command updating.
 // background returns when the Session's connection is closed using CloseConnection.
 func (s *Session) background() {
 	var (
@@ -415,6 +424,7 @@ func (s *Session) background() {
 
 	t := time.NewTicker(time.Second / 20)
 	defer t.Stop()
+
 	for {
 		select {
 		case <-t.C:
@@ -434,10 +444,42 @@ func (s *Session) background() {
 				}
 				s.sendChunks(tx, c)
 			})
-		case pk := <-s.outgoingPackets:
-			_ = s.conn.WritePacket(pk)
 		case <-s.closeBackground:
 			return
+		case first := <-s.incomingPackets:
+			var err error
+			s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
+				c := e.(Controllable)
+				err = s.handlePacket(first, tx, c)
+				if err != nil {
+					return
+				}
+
+				total := len(s.incomingPackets)
+			receive:
+				for range total {
+					select {
+					case <-s.closeBackground:
+						break receive
+					case pk := <-s.incomingPackets:
+						err = s.handlePacket(pk, tx, c)
+						if err != nil {
+							break receive
+						}
+					default:
+						break receive
+					}
+				}
+			})
+
+			if err != nil {
+				s.conf.Log.Debug("process packet: " + err.Error())
+				select {
+				case <-s.closeRead:
+				default:
+					close(s.closeRead)
+				}
+			}
 		}
 	}
 }
@@ -597,4 +639,19 @@ func (s *Session) sendAvailableEntities(w *world.World) {
 		panic("should never happen")
 	}
 	s.writePacket(&packet.AvailableActorIdentifiers{SerialisedEntityIdentifiers: serializedEntityData})
+}
+
+// sendPackets handles the sending of outgoing packets to the client.
+func (s *Session) sendPackets() {
+	for {
+		select {
+		case pk := <-s.outgoingPackets:
+			if err := s.conn.WritePacket(pk); err != nil {
+				s.CloseConnection()
+				return
+			}
+		case <-s.closeBackground:
+			return
+		}
+	}
 }
