@@ -70,13 +70,17 @@ func (h PlayerAuthInputHandler) handleMovement(pk *packet.PlayerAuthInput, s *Se
 // handleActions handles the actions with the world that are present in the PlayerAuthInput packet.
 func (h PlayerAuthInputHandler) handleActions(pk *packet.PlayerAuthInput, s *Session, tx *world.Tx, c Controllable) error {
 	if pk.InputData.Load(packet.InputFlagPerformItemInteraction) {
-		if err := h.handleUseItemData(pk.ItemInteractionData, s, c); err != nil {
-			return err
+		if data, ok := pk.ItemInteractionData.Value(); ok {
+			if err := h.handleUseItemData(data, s, c); err != nil {
+				return err
+			}
 		}
 	}
 	if pk.InputData.Load(packet.InputFlagPerformBlockActions) {
-		if err := h.handleBlockActions(pk.BlockActions, s, c); err != nil {
-			return err
+		if actions, ok := pk.BlockActions.Value(); ok {
+			if err := h.handleBlockActions(actions, s, c); err != nil {
+				return err
+			}
 		}
 	}
 	h.handleInputFlags(pk.InputData, s, c)
@@ -87,17 +91,19 @@ func (h PlayerAuthInputHandler) handleActions(pk *packet.PlayerAuthInput, s *Ses
 
 		// As of 1.18 this is now used for sending item stack requests such as when mining a block.
 		sh := s.handlers[packet.IDItemStackRequest].(*ItemStackRequestHandler)
-		if err := sh.handleRequest(pk.ItemStackRequest, s, tx, c); err != nil {
-			// Item stacks being out of sync isn't uncommon, so don't error. Just debug the error and let the
-			// revert do its work.
-			s.conf.Log.Debug("process packet: PlayerAuthInput: resolve item stack request: " + err.Error())
+		if req, ok := pk.ItemStackRequest.Value(); ok {
+			if err := sh.handleRequest(req, s, tx, c); err != nil {
+				// Item stacks being out of sync isn't uncommon, so don't error. Just debug the error and let the
+				// revert do its work.
+				s.conf.Log.Debug("process packet: PlayerAuthInput: resolve item stack request: " + err.Error())
+			}
 		}
 	}
 	return nil
 }
 
 // handleInputFlags handles the toggleable input flags set in a PlayerAuthInput packet.
-func (h PlayerAuthInputHandler) handleInputFlags(flags protocol.Bitset, s *Session, c Controllable) {
+func (h PlayerAuthInputHandler) handleInputFlags(flags protocol.InputFlags, s *Session, c Controllable) {
 	if flags.Load(packet.InputFlagStartSprinting) {
 		c.StartSprinting()
 	}
