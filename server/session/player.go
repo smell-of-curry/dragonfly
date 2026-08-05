@@ -113,7 +113,10 @@ func (s *Session) sendBiomes() {
 
 // sendRecipes sends the current crafting recipes to the session.
 func (s *Session) sendRecipes() {
-	recipes := make([]protocol.Recipe, 0, len(recipe.Recipes()))
+	shapedRecipes := make([]protocol.ShapedRecipe, 0)
+	shapelessRecipes := make([]protocol.ShapelessRecipe, 0)
+	smithingTransformRecipes := make([]protocol.SmithingTransformRecipe, 0)
+	smithingTrimRecipes := make([]protocol.SmithingTrimRecipe, 0)
 	potionRecipes := make([]protocol.PotionRecipe, 0)
 	potionContainerChange := make([]protocol.PotionContainerChangeRecipe, 0)
 
@@ -123,7 +126,7 @@ func (s *Session) sendRecipes() {
 
 		switch i := i.(type) {
 		case recipe.Shapeless:
-			recipes = append(recipes, &protocol.ShapelessRecipe{
+			shapelessRecipes = append(shapelessRecipes, protocol.ShapelessRecipe{
 				RecipeID:        uuid.New().String(),
 				Priority:        int32(i.Priority()),
 				Input:           stacksToIngredientItems(s.br, i.Input()),
@@ -132,7 +135,7 @@ func (s *Session) sendRecipes() {
 				RecipeNetworkID: networkID,
 			})
 		case recipe.Shaped:
-			recipes = append(recipes, &protocol.ShapedRecipe{
+			shapedRecipes = append(shapedRecipes, protocol.ShapedRecipe{
 				RecipeID:        uuid.New().String(),
 				Priority:        int32(i.Priority()),
 				Width:           int32(i.Shape().Width()),
@@ -144,7 +147,7 @@ func (s *Session) sendRecipes() {
 			})
 		case recipe.SmithingTransform:
 			input, output := stacksToIngredientItems(s.br, i.Input()), stacksToRecipeStacks(s.br, i.Output())
-			recipes = append(recipes, &protocol.SmithingTransformRecipe{
+			smithingTransformRecipes = append(smithingTransformRecipes, protocol.SmithingTransformRecipe{
 				RecipeID:        uuid.New().String(),
 				Base:            input[0],
 				Addition:        input[1],
@@ -155,7 +158,7 @@ func (s *Session) sendRecipes() {
 			})
 		case recipe.SmithingTrim:
 			input := stacksToIngredientItems(s.br, i.Input())
-			recipes = append(recipes, &protocol.SmithingTrimRecipe{
+			smithingTrimRecipes = append(smithingTrimRecipes, protocol.SmithingTrimRecipe{
 				RecipeID:        uuid.New().String(),
 				Base:            input[0],
 				Addition:        input[1],
@@ -189,7 +192,15 @@ func (s *Session) sendRecipes() {
 			})
 		}
 	}
-	s.writePacket(&packet.CraftingData{Recipes: recipes, PotionRecipes: potionRecipes, PotionContainerChangeRecipes: potionContainerChange, ClearRecipes: true})
+	s.writePacket(&packet.CraftingData{
+		ShapedRecipes:                shapedRecipes,
+		ShapelessRecipes:             shapelessRecipes,
+		SmithingTransformRecipes:     smithingTransformRecipes,
+		SmithingTrimRecipes:          smithingTrimRecipes,
+		PotionRecipes:                potionRecipes,
+		PotionContainerChangeRecipes: potionContainerChange,
+		ClearRecipes:                 true,
+	})
 }
 
 // sendArmourTrimData sends the armour trim data.
@@ -1042,15 +1053,12 @@ func stacksToIngredientItems(_ world.BlockRegistry, inputs []recipe.Item) []prot
 				items = append(items, protocol.ItemDescriptorCount{Descriptor: &protocol.InvalidItemDescriptor{}})
 				continue
 			}
-			rid, meta, ok := world.ItemRuntimeID(i.Item())
-			if !ok {
-				panic("should never happen")
+			name, meta := i.Item().EncodeItem()
+			if _, ok := i.Value("variants"); ok {
+				meta = protocol.ItemDescriptorAnyMetadata // Used to indicate that the item has multiple selectable variants.
 			}
-			if _, ok = i.Value("variants"); ok {
-				meta = math.MaxInt16 // Used to indicate that the item has multiple selectable variants.
-			}
-			d = &protocol.DefaultItemDescriptor{
-				NetworkID:     int16(rid),
+			d = &protocol.DeferredItemDescriptor{
+				Name:          name,
 				MetadataValue: meta,
 			}
 		case recipe.ItemTag:
@@ -1069,7 +1077,7 @@ func creativeContent(br world.BlockRegistry) ([]protocol.CreativeGroup, []protoc
 	groups := make([]protocol.CreativeGroup, 0, len(creative.Groups()))
 	for _, group := range creative.Groups() {
 		groups = append(groups, protocol.CreativeGroup{
-			Category: int32(group.Category.Uint8()),
+			Category: group.Category.Uint8(),
 			Name:     group.Name,
 			Icon:     deleteDamage(stackFromItem(br, group.Icon)),
 		})
@@ -1185,7 +1193,7 @@ func debugShapeToProtocol(shape debug.Shape, dim world.Dimension, attachedEntity
 		DimensionID: protocol.Option(int32(dimID)),
 	}
 	if attachedEntityID > 0 {
-		ps.AttachedToEntityID = protocol.Option(attachedEntityID)
+		ps.AttachedToEntityID = protocol.Option(uint64(attachedEntityID))
 	}
 	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 	switch shape := shape.(type) {

@@ -95,19 +95,19 @@ func (s *Session) SendScoreboard(sb *scoreboard.Scoreboard) {
 		s.currentLines.Store(&lines)
 	} else {
 		// Remove all current lines from the scoreboard. We can't replace them without removing them.
-		pk := &packet.SetScore{ActionType: packet.ScoreboardActionRemove}
+		pk := &packet.SetScore{}
 		for i := range currentLines {
 			pk.Entries = append(pk.Entries, protocol.ScoreboardEntry{
 				EntryID:       int64(i),
 				ObjectiveName: currentName,
-				Score:         int32(i),
+				IdentityType:  protocol.ScoreboardIdentityRemove,
 			})
 		}
 		if len(pk.Entries) > 0 {
 			s.writePacket(pk)
 		}
 	}
-	pk := &packet.SetScore{ActionType: packet.ScoreboardActionModify}
+	pk := &packet.SetScore{}
 	for k, line := range sb.Lines() {
 		if len(line) == 0 {
 			line = "§" + colours[k]
