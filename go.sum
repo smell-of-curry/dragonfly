@@ -86,8 +86,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/sandertv/go-raknet v1.15.1-0.20260112202637-beca0b10c217 h1:UZQq2253Q+7co/C9Et62RYPBggzz+L+2yqGlvQhSNM8=
 github.com/sandertv/go-raknet v1.15.1-0.20260112202637-beca0b10c217/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
-github.com/sandertv/gophertunnel v1.57.2-0.20260805192436-b36ddade9b46 h1:nI+WwVzUNPPiSJerW/exAgpHzO3+FcAEAnEWMw1+MnQ=
-github.com/sandertv/gophertunnel v1.57.2-0.20260805192436-b36ddade9b46/go.mod h1:Frjuk3g1EEGRYjzyrEMS4j/hDvTcez2STfuRHkRPlNU=
+github.com/sandertv/gophertunnel v0.0.0-20260805193201-58dd5f9f9fef h1:va4B7Zpa9SXupURysIaZX1pI9SqLTQu6gWy8l+1EG4s=
+github.com/sandertv/gophertunnel v0.0.0-20260805193201-58dd5f9f9fef/go.mod h1:Frjuk3g1EEGRYjzyrEMS4j/hDvTcez2STfuRHkRPlNU=
 github.com/segmentio/fasthash v1.0.3 h1:EI9+KE1EwvMLBWwjpRDc+fEM+prwxDYbslddQGtrmhM=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
