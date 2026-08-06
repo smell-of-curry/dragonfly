@@ -2,6 +2,7 @@ package world
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/df-mc/dragonfly/server/world/chunk"
 )
@@ -12,6 +13,7 @@ type chunkRequest struct {
 	pos       ChunkPos
 	callbacks []chunkCallback
 	signalled bool
+	aborted   atomic.Bool
 
 	done   chan struct{}
 	col    *chunk.Column
@@ -58,6 +60,8 @@ func (r *chunkRequest) load(w *World) {
 // abort cancels a request that will never be carried out because the world is
 // closing, releasing any callers waiting on it.
 func (r *chunkRequest) abort() {
+	r.aborted.Store(true)
+	r.err = ErrWorldClosed
 	close(r.done)
 }
 
@@ -111,8 +115,8 @@ func (p *chunkWorkerPool) drainAndAbort() {
 	}
 }
 
-// signal adds the finished chunk to the world and calls all callers waiting
-// for it. It always runs inside a world transaction.
+// signal adds the finished chunk to the world and hands it to all callers
+// waiting for it. It always runs inside a world transaction.
 func (r *chunkRequest) signal(tx *Tx) {
 	if r.signalled {
 		return
@@ -128,16 +132,22 @@ func (r *chunkRequest) signal(tx *Tx) {
 	}
 	if r.err != nil {
 		w.conf.Log.Error("load chunk: "+r.err.Error(), "X", pos[0], "Z", pos[1])
-		for _, recv := range r.callbacks {
-			recv(tx, nil)
-		}
+		r.dispatch(tx, nil)
 		return
 	}
 	r.result = w.addChunk(pos, r.col)
 	if w.closed.Load() {
 		return
 	}
-	for _, recv := range r.callbacks {
-		recv(tx, r.result)
+	r.dispatch(tx, r.result)
+}
+
+// dispatch hands col to every caller waiting on the request, never nested
+// inside the callback signal was reached from.
+func (r *chunkRequest) dispatch(tx *Tx, col *Column) {
+	callbacks := r.callbacks
+	r.callbacks = nil
+	for _, recv := range callbacks {
+		tx.Defer(func(tx *Tx) { recv(tx, col) })
 	}
 }

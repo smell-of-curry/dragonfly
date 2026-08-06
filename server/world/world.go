@@ -1400,18 +1400,20 @@ func (w *World) emptyColumn() *Column {
 // calling callback once ready. It returns false if it could not be scheduled.
 func (w *World) loadChunkAsync(tx *Tx, pos ChunkPos, callback chunkCallback) bool {
 	if c, ok := w.chunks[pos]; ok {
-		callback(tx, c)
+		tx.Defer(func(tx *Tx) { callback(tx, c) })
 		return true
 	}
 	if w.conf.Synchronous {
 		// Synchronous worlds have no chunk workers; load on the calling goroutine.
-		callback(tx, tx.chunk(pos))
+		c := tx.chunk(pos)
+		tx.Defer(func(tx *Tx) { callback(tx, c) })
 		return true
 	}
-	if req, ok := w.chunkRequests[pos]; ok {
+	if req, ok := w.chunkRequests[pos]; ok && !req.aborted.Load() {
 		req.callbacks = append(req.callbacks, callback)
 		return true
 	}
+	delete(w.chunkRequests, pos)
 	req := &chunkRequest{pos: pos, done: make(chan struct{}), callbacks: []chunkCallback{callback}}
 	if !w.chunkWorkers.schedule(req) {
 		return false
