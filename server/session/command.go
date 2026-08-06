@@ -213,7 +213,8 @@ func valueToParamType(i cmd.ParamInfo, source cmd.Source) (t uint32, enum comman
 			Options: enum.Options(source),
 		}
 	}
-	return protocol.CommandArgTypeValue, enum
+	// CommandArgTypeValue was removed in gophertunnel; wire ID 4 is now CommandArgTypeRValue.
+	return protocol.CommandArgTypeRValue, enum
 }
 
 // resendCommands resends all commands that a Session has access to if the map of runnable commands passed does not
