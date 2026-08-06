@@ -101,6 +101,8 @@ func (s *Session) ViewEntity(e world.Entity) {
 			UUID:            v.UUID(),
 			Username:        v.Name(),
 			Yaw:             float32(yaw),
+			// BuildPlatform 0 is invalid (DeviceOS starts at 1) and kicks clients (#1382).
+			BuildPlatform: int32(protocol.DeviceDedicated),
 			AbilityData: protocol.AbilityData{
 				EntityUniqueID: int64(runtimeID),
 				Layers: []protocol.AbilityLayer{{
